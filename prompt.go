@@ -31,6 +31,11 @@ RULES:
 - "sources" should reference real, verifiable URLs when possible. Use an empty array if no specific sources are available.
 - "meta" must contain an entry for every field present in "data".
 - "notes" should mention any data conflicts, staleness, or relevant caveats.
+- In "notes", never reference null fields, LLM training data, or knowledge cutoffs. Write as a knowledgeable human would:
+    - Use "no known children at this time" instead of "'children' is null".
+    - Use "as of 2024" instead of "as of the knowledge cutoff".
+    - Focus only on meaningful observations about the data: conflicts between
+      sources, uncertainty, missing information, or notable context.
 - Return ONLY the JSON object. No markdown fences, no explanation, no preamble.`
 
 // buildUserPrompt constructs the user-facing prompt from the request and schema.
