@@ -374,3 +374,118 @@ func TestSchemaFromFile_Nonexistent(t *testing.T) {
 		t.Fatalf("expected ErrSchemaInvalid, got %v", err)
 	}
 }
+
+func TestQuery_SourcesConfig_PassedToProvider(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock)
+
+	maxSearches := 3
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+		Options: &augur.QueryOptions{
+			Sources: &augur.SourceConfig{
+				MaxSearches:    &maxSearches,
+				AllowedDomains: []string{"wikipedia.org"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.lastParams == nil {
+		t.Fatal("expected lastParams to be captured")
+	}
+	if mock.lastParams.Sources == nil {
+		t.Fatal("expected Sources to be passed to provider")
+	}
+	if *mock.lastParams.Sources.MaxSearches != 3 {
+		t.Errorf("MaxSearches: got %d, want 3", *mock.lastParams.Sources.MaxSearches)
+	}
+	if len(mock.lastParams.Sources.AllowedDomains) != 1 || mock.lastParams.Sources.AllowedDomains[0] != "wikipedia.org" {
+		t.Errorf("AllowedDomains: got %v", mock.lastParams.Sources.AllowedDomains)
+	}
+}
+
+func TestQuery_SourcesNil_NotPassedToProvider(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock)
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.lastParams.Sources != nil {
+		t.Error("expected Sources to be nil when not configured")
+	}
+}
+
+func TestQuery_WebSearchUsageAccumulated(t *testing.T) {
+	first := envelope(`{"children":["Colin"]}`)
+	second := envelope(`{"spouse":"Rita Wilson"}`)
+	mock := &mockProvider{
+		responses: []string{first, second},
+		usage:     &augur.Usage{InputTokens: 10, OutputTokens: 20, WebSearchRequests: 2},
+	}
+	client := augur.New(mock, augur.WithMaxRetries(1))
+
+	result, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+		Options: &augur.QueryOptions{
+			Sources: &augur.SourceConfig{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Usage == nil {
+		t.Fatal("expected non-nil Usage")
+	}
+	if result.Usage.WebSearchRequests != 4 {
+		t.Errorf("WebSearchRequests: got %d, want 4 (2 per call x 2 calls)", result.Usage.WebSearchRequests)
+	}
+}
+
+func TestQuery_MetaCitedTextFlowsThrough(t *testing.T) {
+	resp := envelopeWithMeta(
+		`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`,
+		`{"spouse":{"confidence":0.99,"sources":[{"url":"https://en.wikipedia.org/wiki/Tom_Hanks","title":"Tom Hanks - Wikipedia","citedText":"Tom Hanks married Rita Wilson in 1988."}]}}`,
+	)
+	client := augur.New(newMock(resp))
+
+	result, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	spouseMeta, ok := result.Meta["spouse"]
+	if !ok {
+		t.Fatal("expected spouse in Meta")
+	}
+	if len(spouseMeta.Sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(spouseMeta.Sources))
+	}
+	src := spouseMeta.Sources[0]
+	if src.CitedText != "Tom Hanks married Rita Wilson in 1988." {
+		t.Errorf("CitedText: got %q", src.CitedText)
+	}
+}
+
+func TestQuery_SourcesNotSupported(t *testing.T) {
+	mock := newMockErr(augur.ErrSourcesNotSupported)
+	client := augur.New(mock)
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+		Options: &augur.QueryOptions{
+			Sources: &augur.SourceConfig{},
+		},
+	})
+	if !errors.Is(err, augur.ErrProviderFailure) {
+		t.Fatalf("expected ErrProviderFailure wrapping, got %v", err)
+	}
+}

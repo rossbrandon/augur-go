@@ -39,6 +39,7 @@ func Query[T any](ctx context.Context, c *Client, req *Request) (*Response[T], e
 	model := c.model
 	temperature := 0.0
 	maxTokens := c.maxTokens
+	var sources *SourceConfig
 	if req.Options != nil {
 		if req.Options.Model != "" {
 			model = req.Options.Model
@@ -49,6 +50,7 @@ func Query[T any](ctx context.Context, c *Client, req *Request) (*Response[T], e
 		if req.Options.MaxTokens != nil {
 			maxTokens = *req.Options.MaxTokens
 		}
+		sources = req.Options.Sources
 	}
 
 	userPrompt, err := buildUserPrompt(req, schema)
@@ -57,16 +59,17 @@ func Query[T any](ctx context.Context, c *Client, req *Request) (*Response[T], e
 	}
 
 	if c.logger != nil {
-		c.logger.Debug("executing query", "model", model, "query", req.Query)
+		c.logger.Debug("executing query", "model", model, "query", req.Query, "sources", sources != nil)
 	}
 
 	// Execute provider call with retry loop for required field failures.
 	params := &ProviderParams{
-		SystemPrompt: systemPromptTemplate,
+		SystemPrompt: buildSystemPrompt(sources != nil),
 		UserPrompt:   userPrompt,
 		Model:        model,
 		Temperature:  temperature,
 		MaxTokens:    maxTokens,
+		Sources:      sources,
 	}
 
 	result, providerModel, usage, retries, err := executeWithRetry(ctx, c, req, schema, params)
@@ -150,6 +153,7 @@ func executeWithRetry(
 			}
 			usage.InputTokens += providerResult.Usage.InputTokens
 			usage.OutputTokens += providerResult.Usage.OutputTokens
+			usage.WebSearchRequests += providerResult.Usage.WebSearchRequests
 		}
 
 		pr, err := processResponse(providerResult.Content, schema, c.logger)
@@ -172,11 +176,12 @@ func executeWithRetry(
 		if attempt < c.maxRetries {
 			retryPrompt := buildRetryPrompt(req, failed, schema)
 			currentParams = &ProviderParams{
-				SystemPrompt: systemPromptTemplate,
+				SystemPrompt: params.SystemPrompt,
 				UserPrompt:   retryPrompt,
 				Model:        params.Model,
 				Temperature:  params.Temperature,
 				MaxTokens:    params.MaxTokens,
+				Sources:      params.Sources,
 			}
 		}
 	}

@@ -158,6 +158,9 @@ func buildResponseMeta(raw map[string]map[string]any) map[string]*FieldMeta {
 					if t, ok := sm["title"].(string); ok {
 						src.Title = t
 					}
+					if ct, ok := sm["citedText"].(string); ok {
+						src.CitedText = ct
+					}
 					fm.Sources = append(fm.Sources, src)
 				}
 			}

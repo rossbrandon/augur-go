@@ -25,6 +25,9 @@ type ProviderParams struct {
 	Model       string
 	Temperature float64
 	MaxTokens   int
+	// Sources, when non-nil, instructs the provider to enable web search
+	// so that source citations are grounded in real search results.
+	Sources *SourceConfig
 }
 
 // ProviderResult is the raw response from an LLM provider.
@@ -39,6 +42,7 @@ type ProviderResult struct {
 
 // Usage tracks token consumption for cost monitoring.
 type Usage struct {
-	InputTokens  int `json:"inputTokens"`
-	OutputTokens int `json:"outputTokens"`
+	InputTokens       int `json:"inputTokens"`
+	OutputTokens      int `json:"outputTokens"`
+	WebSearchRequests int `json:"webSearchRequests,omitempty"`
 }

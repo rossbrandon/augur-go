@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -18,9 +19,17 @@ type queryRequest struct {
 
 // queryOptions mirrors augur.QueryOptions for HTTP deserialization.
 type queryOptions struct {
-	Model       string   `json:"model,omitempty"`
-	Temperature *float64 `json:"temperature,omitempty"`
-	MaxTokens   *int     `json:"maxTokens,omitempty"`
+	Model       string        `json:"model,omitempty"`
+	Temperature *float64      `json:"temperature,omitempty"`
+	MaxTokens   *int          `json:"maxTokens,omitempty"`
+	Sources     *sourceConfig `json:"sources,omitempty"`
+}
+
+// sourceConfig mirrors augur.SourceConfig for HTTP deserialization.
+type sourceConfig struct {
+	MaxSearches    *int     `json:"maxSearches,omitempty"`
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
+	BlockedDomains []string `json:"blockedDomains,omitempty"`
 }
 
 func handleQuery(client *augur.Client, logger *slog.Logger) http.HandlerFunc {
@@ -62,10 +71,21 @@ func handleQuery(client *augur.Client, logger *slog.Logger) http.HandlerFunc {
 				Temperature: req.Options.Temperature,
 				MaxTokens:   req.Options.MaxTokens,
 			}
+			if req.Options.Sources != nil {
+				augurReq.Options.Sources = &augur.SourceConfig{
+					MaxSearches:    req.Options.Sources.MaxSearches,
+					AllowedDomains: req.Options.Sources.AllowedDomains,
+					BlockedDomains: req.Options.Sources.BlockedDomains,
+				}
+			}
 		}
 
 		resp, err := augur.Query[map[string]any](r.Context(), client, augurReq)
 		if err != nil {
+			if errors.Is(err, augur.ErrSourcesNotSupported) {
+				writeError(w, http.StatusBadRequest, "sources are not supported by the requested model")
+				return
+			}
 			logger.Error("query failed", "error", err, "query", req.Query)
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return

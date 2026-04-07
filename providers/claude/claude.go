@@ -6,13 +6,17 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	augur "github.com/rossbrandon/augur-go"
 )
 
-const defaultModel = "claude-sonnet-4-6"
+const (
+	defaultModel       = "claude-sonnet-4-6"
+	defaultMaxSearches = 2
+)
 
 // Provider implements augur.Provider for the Anthropic Claude API.
 type Provider struct {
@@ -87,8 +91,15 @@ func (p *Provider) Execute(ctx context.Context, params *augur.ProviderParams) (*
 
 	msgParams.Temperature = anthropic.Float(params.Temperature)
 
+	if params.Sources != nil {
+		msgParams.Tools = buildWebSearchTools(params.Sources)
+	}
+
 	msg, err := p.client.Messages.New(ctx, msgParams)
 	if err != nil {
+		if params.Sources != nil && isWebSearchNotSupported(err) {
+			return nil, fmt.Errorf("%w: model %q: %w", augur.ErrSourcesNotSupported, model, err)
+		}
 		return nil, fmt.Errorf("claude API call failed: %w", err)
 	}
 
@@ -99,14 +110,45 @@ func (p *Provider) Execute(ctx context.Context, params *augur.ProviderParams) (*
 		}
 	}
 
+	usage := &augur.Usage{
+		InputTokens:  int(msg.Usage.InputTokens),
+		OutputTokens: int(msg.Usage.OutputTokens),
+	}
+	if params.Sources != nil {
+		usage.WebSearchRequests = int(msg.Usage.ServerToolUse.WebSearchRequests)
+	}
+
 	return &augur.ProviderResult{
 		Content: content,
 		Model:   string(msg.Model),
-		Usage: &augur.Usage{
-			InputTokens:  int(msg.Usage.InputTokens),
-			OutputTokens: int(msg.Usage.OutputTokens),
-		},
+		Usage:   usage,
 	}, nil
+}
+
+func buildWebSearchTools(cfg *augur.SourceConfig) []anthropic.ToolUnionParam {
+	maxSearches := int64(defaultMaxSearches)
+	if cfg.MaxSearches != nil {
+		maxSearches = int64(*cfg.MaxSearches)
+	}
+
+	searchTool := &anthropic.WebSearchTool20250305Param{
+		MaxUses: anthropic.Int(maxSearches),
+	}
+	if len(cfg.AllowedDomains) > 0 {
+		searchTool.AllowedDomains = cfg.AllowedDomains
+	}
+	if len(cfg.BlockedDomains) > 0 {
+		searchTool.BlockedDomains = cfg.BlockedDomains
+	}
+
+	return []anthropic.ToolUnionParam{
+		{OfWebSearchTool20250305: searchTool},
+	}
+}
+
+func isWebSearchNotSupported(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "web_search") && (strings.Contains(msg, "not supported") || strings.Contains(msg, "not available"))
 }
 
 // Name returns the stable provider identifier.

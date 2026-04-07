@@ -62,6 +62,14 @@ if req.Options != nil {
     Temperature: req.Options.Temperature,
     MaxTokens:   req.Options.MaxTokens,
   }
+  // Enable source citations backed by web search.
+  if req.Options.Sources != nil {
+    augurReq.Options.Sources = &augur.SourceConfig{
+      MaxSearches:    req.Options.Sources.MaxSearches,
+      AllowedDomains: req.Options.Sources.AllowedDomains,
+      BlockedDomains: req.Options.Sources.BlockedDomains,
+    }
+  }
 }
 
 // Use map[string]any since the schema is dynamic at the HTTP layer.
@@ -111,7 +119,12 @@ json.NewEncoder(w).Encode(resp)
   "context": "Optional additional context for the LLM",
   "options": {
     "model": "claude-sonnet-4-6",
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "sources": {
+      "maxSearches": 5,
+      "allowedDomains": ["wikipedia.org"],
+      "blockedDomains": []
+    }
   }
 }
 ```
@@ -124,7 +137,7 @@ json.NewEncoder(w).Encode(resp)
   "meta": {
     "field_name": {
       "confidence": 0.95,
-      "sources": [{ "url": "...", "title": "..." }]
+      "sources": [{ "url": "...", "title": "...", "citedText": "..." }]
     }
   },
   "errors": [],
@@ -133,8 +146,14 @@ json.NewEncoder(w).Encode(resp)
   "model": "claude-sonnet-4-6",
   "retriesExecuted": 0,
   "latencyMs": 1234,
-  "usage": { "inputTokens": 512, "outputTokens": 128 }
+  "usage": { "inputTokens": 512, "outputTokens": 128, "webSearchRequests": 2 }
 }
+```
+
+> **Note:** `sources` are only populated when `options.sources` is provided in the request.
+> Without it, sources will always be empty arrays. Enabling sources activates web search,
+> which incurs additional cost ($10 per 1,000 searches) and increases token usage.
+> The `webSearchRequests` field in `usage` is only present when sources are enabled.
 ```
 
 **Response — partial success (`200`)**
@@ -221,5 +240,31 @@ curl -s -X POST http://localhost:8080/query \
       "required": ["name"]
     },
     "options": { "model": "claude-haiku-4-5-20251001" }
+  }' | jq .
+```
+
+**With source citations (web search enabled)**
+
+```sh
+curl -s -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "Tom Hanks biography",
+    "context": "Focus on personal life",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "spouse":   { "type": "string",  "description": "Current or most recent spouse" },
+        "children": { "type": "array",   "items": { "type": "string" }, "description": "Names of children" },
+        "born":     { "type": "integer", "description": "Birth year" }
+      },
+      "required": ["spouse", "born"]
+    },
+    "options": {
+      "sources": {
+        "maxSearches": 3,
+        "allowedDomains": ["wikipedia.org", "britannica.com"]
+      }
+    }
   }' | jq .
 ```

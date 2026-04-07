@@ -52,8 +52,9 @@ type FieldMeta struct {
 
 // Source represents a citation for a piece of data.
 type Source struct {
-	URL   string `json:"url"`
-	Title string `json:"title"`
+	URL       string `json:"url"`
+	Title     string `json:"title"`
+	CitedText string `json:"citedText,omitempty"`
 }
 
 // OK reports whether the query was a full success: all fields populated with no errors.

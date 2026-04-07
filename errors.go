@@ -19,4 +19,8 @@ var (
 	// markdown fence stripping, brace scanning). The raw content is included
 	// in the wrapped error message for debugging.
 	ErrResponseMalformed = errors.New("augur: could not parse provider response as JSON")
+
+	// ErrSourcesNotSupported indicates that sources were requested but the
+	// configured model does not support web search.
+	ErrSourcesNotSupported = errors.New("augur: sources require web search, which is not supported by the requested model")
 )

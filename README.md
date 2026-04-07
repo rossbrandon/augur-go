@@ -62,15 +62,16 @@ Response[T]{Data, Meta, Errors, Notes, Usage, RetriesExecuted, LatencyMS}
 
 Augur uses two error channels:
 
-| Channel        | When                    | Meaning                                                              |
-| -------------- | ----------------------- | -------------------------------------------------------------------- |
-| `error` return | infrastructure failures | `ErrProviderFailure`, `ErrResponseMalformed`, `ErrSchemaInvalid`     |
-| `resp.Data`    | data-level outcomes     | `nil` = total failure; non-nil = full or partial success             |
-| `resp.Errors`  | field-level failures    | optional field absent or uncoercible; `resp.Data` is still usable    |
+| Channel        | When                    | Meaning                                                           |
+| -------------- | ----------------------- | ----------------------------------------------------------------- |
+| `error` return | infrastructure failures | `ErrProviderFailure`, `ErrResponseMalformed`, `ErrSchemaInvalid`  |
+| `resp.Data`    | data-level outcomes     | `nil` = total failure; non-nil = full or partial success          |
+| `resp.Errors`  | field-level failures    | optional field absent or uncoercible; `resp.Data` is still usable |
 
 When `err` is non-nil, `resp` is nil — something broke at the infrastructure level (network, auth, malformed JSON).
 
 When `err` is nil, `resp` is always non-nil. Check `resp.Data`:
+
 - **`resp.Data == nil`** (total failure): required fields could not be resolved after retries. Check `resp.Errors`.
 - **`resp.Data != nil`** with `resp.Errors`: partial success — some optional fields missing.
 - **`resp.Data != nil`** with no errors: full success.
@@ -162,6 +163,8 @@ When `req.Schema` is set it always takes precedence over `T`.
 
 ## Response metadata
 
+Every field in `resp.Meta` includes a confidence score. Source citations are only populated when [sources are enabled](#source-citations).
+
 ```go
 if meta, ok := resp.Meta["netWorth"]; ok {
     fmt.Printf("confidence: %.2f\n", meta.Confidence)
@@ -194,9 +197,83 @@ req := &augur.Request{
     Options: &augur.QueryOptions{
         Model:     "claude-haiku-4-5-20251001",
         MaxTokens: &maxTok,
+        Sources:   &augur.SourceConfig{}, // enable web search + source citations
     },
 }
 ```
+
+## Source citations
+
+By default, `FieldMeta.Sources` is always empty. LLMs cannot produce reliable source URLs from training data alone — any URLs they generate are reconstructed guesses that may not exist.
+
+To get real, verifiable source citations, enable sources via `SourceConfig`. This activates web search under the hood, grounding the model in real-time web data so that every URL in `Sources` comes from an actual search result.
+
+```go
+resp, err := augur.Query[ActorInfo](ctx, client, &augur.Request{
+    Query: "Harrison Ford net worth and family",
+    Options: &augur.QueryOptions{
+        Sources: &augur.SourceConfig{},
+    },
+})
+
+// Sources now contain real URLs from web search results.
+for _, src := range resp.Meta["netWorth"].Sources {
+    fmt.Printf("  %s — %s\n", src.Title, src.URL)
+    // e.g. "Harrison Ford Net Worth | Celebrity Net Worth" — https://www.celebritynetworth.com/...
+}
+```
+
+### SourceConfig options
+
+| Field            | Type       | Default | Description                                                                 |
+| ---------------- | ---------- | ------- | --------------------------------------------------------------------------- |
+| `MaxSearches`    | `*int`     | `2`     | Max web searches per query. Higher values find more data but increase cost. |
+| `AllowedDomains` | `[]string` | all     | Restrict results to these domains only.                                     |
+| `BlockedDomains` | `[]string` | none    | Exclude results from these domains.                                         |
+
+```go
+Sources: &augur.SourceConfig{
+    MaxSearches:    &maxSearches, // e.g. 3
+    AllowedDomains: []string{"wikipedia.org", "britannica.com"},
+}
+```
+
+### Cost and performance
+
+Enabling sources activates web search, which adds cost and latency:
+
+- **Per-search fee**: $10 per 1,000 searches (each search counts as one use regardless of results returned).
+- **Token usage**: Search result content is loaded into the context window as input tokens.
+- **Latency**: Each search adds network round-trip time.
+
+The `Usage` field on the response tracks web search usage alongside token consumption:
+
+```go
+fmt.Printf("searches: %d, tokens: %d in / %d out\n",
+    resp.Usage.WebSearchRequests,
+    resp.Usage.InputTokens,
+    resp.Usage.OutputTokens)
+```
+
+### Model compatibility
+
+Not all models support web search. If the requested model is incompatible, `Query` returns `ErrSourcesNotSupported`:
+
+```go
+resp, err := augur.Query[ActorInfo](ctx, client, req)
+if errors.Is(err, augur.ErrSourcesNotSupported) {
+    // switch to a compatible model or disable sources
+}
+```
+
+### When to use sources
+
+| Scenario                                             | Sources | Why                                      |
+| ---------------------------------------------------- | ------- | ---------------------------------------- |
+| Factual data that needs verifiable citations         | Yes     | Real URLs from web search                |
+| Current/real-time data (prices, events, recent news) | Yes     | Web search bypasses training data cutoff |
+| Cost-sensitive, training data is sufficient          | No      | Avoids web search cost and latency       |
+| High-volume batch queries                            | No      | Cost scales with search count            |
 
 ## Type coercion
 

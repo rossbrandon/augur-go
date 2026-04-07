@@ -15,6 +15,10 @@ type mockProvider struct {
 	err       error
 	// errOnCall, if non-nil, returns an error on the Nth call (0-indexed).
 	errOnCall map[int]error
+	// lastParams captures the most recent ProviderParams for assertions.
+	lastParams *augur.ProviderParams
+	// usage overrides the default usage returned by Execute.
+	usage *augur.Usage
 }
 
 func newMock(responses ...string) *mockProvider {
@@ -25,9 +29,10 @@ func newMockErr(err error) *mockProvider {
 	return &mockProvider{err: err}
 }
 
-func (m *mockProvider) Execute(_ context.Context, _ *augur.ProviderParams) (*augur.ProviderResult, error) {
+func (m *mockProvider) Execute(_ context.Context, params *augur.ProviderParams) (*augur.ProviderResult, error) {
 	callIdx := m.calls
 	m.calls++
+	m.lastParams = params
 
 	if m.err != nil {
 		return nil, m.err
@@ -42,10 +47,16 @@ func (m *mockProvider) Execute(_ context.Context, _ *augur.ProviderParams) (*aug
 	if idx >= len(m.responses) {
 		idx = len(m.responses) - 1
 	}
+
+	usage := &augur.Usage{InputTokens: 10, OutputTokens: 20}
+	if m.usage != nil {
+		usage = m.usage
+	}
+
 	return &augur.ProviderResult{
 		Content: m.responses[idx],
 		Model:   "mock",
-		Usage:   &augur.Usage{InputTokens: 10, OutputTokens: 20},
+		Usage:   usage,
 	}, nil
 }
 

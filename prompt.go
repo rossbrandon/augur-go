@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const systemPromptTemplate = `You are a structured data retrieval engine. Your role is to answer queries by returning factual, well-sourced data in a precise JSON format.
+const systemPromptBase = `You are a structured data retrieval engine. Your role is to answer queries by returning factual, well-sourced data in a precise JSON format.
 
 RESPONSE FORMAT:
 Return ONLY valid JSON with these exact top-level keys:
@@ -28,7 +28,6 @@ RULES:
 - If you cannot determine a value for an optional field, set it to null.
 - If you cannot determine a value for a required field, still include it with your best estimate and set confidence below 0.5.
 - "confidence" reflects your certainty: 1.0 = verified fact, 0.7-0.9 = high confidence, 0.4-0.6 = moderate, below 0.4 = low.
-- "sources" should reference real, verifiable URLs when possible. Use an empty array if no specific sources are available.
 - "meta" must contain an entry for every field present in "data".
 - "notes" should mention any data conflicts, staleness, or relevant caveats.
 - In "notes", never reference null fields, LLM training data, or knowledge cutoffs. Write as a knowledgeable human would:
@@ -37,6 +36,22 @@ RULES:
     - Focus only on meaningful observations about the data: conflicts between
       sources, uncertainty, missing information, or notable context.
 - Return ONLY the JSON object. No markdown fences, no explanation, no preamble.`
+
+const sourcesDisabledRule = `
+- "sources" MUST always be an empty array. You do not have the ability to provide real source URLs. NEVER fabricate, guess, or reconstruct URLs under any circumstances.`
+
+const sourcesEnabledRule = `
+- You have web search tools available. Use them to find current, accurate data for your response.
+- "sources" MUST only contain URLs returned by your web search results. Include the URL and title from the search result. NEVER fabricate URLs that did not come from a search result.`
+
+// buildSystemPrompt constructs the system prompt with the appropriate sources
+// instruction based on whether source citations are enabled for this query.
+func buildSystemPrompt(sourcesEnabled bool) string {
+	if sourcesEnabled {
+		return systemPromptBase + sourcesEnabledRule
+	}
+	return systemPromptBase + sourcesDisabledRule
+}
 
 // buildUserPrompt constructs the user-facing prompt from the request and schema.
 func buildUserPrompt(req *Request, schema *Schema) (string, error) {
