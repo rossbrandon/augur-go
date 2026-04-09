@@ -11,11 +11,13 @@ const (
 // client-level configuration applied to every query unless overridden via
 // QueryOptions.
 type Client struct {
-	provider   Provider
-	maxRetries int
-	maxTokens  int
-	model      string
-	logger     *slog.Logger
+	provider         Provider
+	maxRetries       int
+	maxTokens        int
+	model            string
+	logger           *slog.Logger
+	sourceConfig     SourceConfig
+	webSearchEnabled bool
 }
 
 // Option configures a Client via the functional options pattern.
@@ -53,6 +55,22 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+// WithoutWebSearch disables web search globally for this client. Per-query
+// SourceConfig overrides still take effect. By default, web search is enabled.
+func WithoutWebSearch() Option {
+	return func(c *Client) {
+		c.webSearchEnabled = false
+	}
+}
+
+// WithSourceConfig sets the default SourceConfig for all queries made by this
+// client. Per-query SourceConfig overrides take precedence.
+func WithSourceConfig(cfg SourceConfig) Option {
+	return func(c *Client) {
+		c.sourceConfig = cfg
+	}
+}
+
 // New creates a new Augur client with the given provider and options.
 // Panics if provider is nil.
 func New(provider Provider, opts ...Option) *Client {
@@ -60,9 +78,10 @@ func New(provider Provider, opts ...Option) *Client {
 		panic("augur: provider must not be nil")
 	}
 	c := &Client{
-		provider:   provider,
-		maxRetries: defaultMaxRetries,
-		maxTokens:  defaultMaxTokens,
+		provider:         provider,
+		maxRetries:       defaultMaxRetries,
+		maxTokens:        defaultMaxTokens,
+		webSearchEnabled: true,
 	}
 	for _, opt := range opts {
 		opt(c)

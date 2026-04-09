@@ -62,9 +62,10 @@ if req.Options != nil {
     Temperature: req.Options.Temperature,
     MaxTokens:   req.Options.MaxTokens,
   }
-  // Enable source citations backed by web search.
+  // Override default web search settings for this query.
   if req.Options.Sources != nil {
     augurReq.Options.Sources = &augur.SourceConfig{
+      Disabled:       req.Options.Sources.Disabled,
       MaxSearches:    req.Options.Sources.MaxSearches,
       AllowedDomains: req.Options.Sources.AllowedDomains,
       BlockedDomains: req.Options.Sources.BlockedDomains,
@@ -121,6 +122,7 @@ json.NewEncoder(w).Encode(resp)
     "model": "claude-sonnet-4-6",
     "maxTokens": 4096,
     "sources": {
+      "disabled": false,
       "maxSearches": 5,
       "allowedDomains": ["wikipedia.org"],
       "blockedDomains": []
@@ -150,11 +152,12 @@ json.NewEncoder(w).Encode(resp)
 }
 ```
 
-> **Note:** `sources` are only populated when `options.sources` is provided in the request.
-> Without it, sources will always be empty arrays. Enabling sources activates web search,
-> which incurs additional cost ($10 per 1,000 searches) and increases token usage.
-> The `webSearchRequests` field in `usage` is only present when sources are enabled.
-```
+> **Note:** Web search is enabled by default. Source citations in `meta` are backed by real
+> web search results. To disable web search for a query, set `"sources": { "disabled": true }`
+> in the request options. Web search incurs additional cost ($10 per 1,000 searches) and
+> increases token usage. The `webSearchRequests` field in `usage` tracks search usage.
+
+````
 
 **Response — partial success (`200`)**
 
@@ -170,7 +173,7 @@ Required fields could not be resolved after retries. `data` is `null`; `errors` 
   "errors": [{ "field": "field_name", "reason": "field not present in response" }],
   ...
 }
-```
+````
 
 **Response — bad request (`400`)**
 
@@ -243,7 +246,7 @@ curl -s -X POST http://localhost:8080/query \
   }' | jq .
 ```
 
-**With source citations (web search enabled)**
+**With custom web search settings**
 
 ```sh
 curl -s -X POST http://localhost:8080/query \
@@ -265,6 +268,27 @@ curl -s -X POST http://localhost:8080/query \
         "maxSearches": 3,
         "allowedDomains": ["wikipedia.org", "britannica.com"]
       }
+    }
+  }' | jq .
+```
+
+**With web search disabled**
+
+```sh
+curl -s -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "Tom Hanks net worth",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "amount":   { "type": "integer", "description": "Net worth in USD" },
+        "currency": { "type": "string",  "description": "Currency code" }
+      },
+      "required": ["amount"]
+    },
+    "options": {
+      "sources": { "disabled": true }
     }
   }' | jq .
 ```

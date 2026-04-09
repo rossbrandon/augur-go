@@ -163,7 +163,7 @@ When `req.Schema` is set it always takes precedence over `T`.
 
 ## Response metadata
 
-Every field in `resp.Meta` includes a confidence score. Source citations are only populated when [sources are enabled](#source-citations).
+Every field in `resp.Meta` includes a confidence score. Source citations are populated by default via [web search](#source-citations).
 
 ```go
 if meta, ok := resp.Meta["netWorth"]; ok {
@@ -189,6 +189,19 @@ client := augur.New(
 )
 ```
 
+Web search is enabled by default. To disable it globally or customize the default configuration:
+
+```go
+// Disable web search for all queries.
+client := augur.New(provider, augur.WithoutWebSearch())
+
+// Customize default web search settings for all queries.
+client := augur.New(provider, augur.WithSourceConfig(augur.SourceConfig{
+    MaxSearches:    augur.Int(5),
+    AllowedDomains: []string{"wikipedia.org", "britannica.com"},
+}))
+```
+
 Per-query overrides via `Request.Options`:
 
 ```go
@@ -196,55 +209,71 @@ req := &augur.Request{
     Query: "...",
     Options: &augur.QueryOptions{
         Model:     "claude-haiku-4-5-20251001",
-        MaxTokens: &maxTok,
-        Sources:   &augur.SourceConfig{}, // enable web search + source citations
+        MaxTokens: augur.Int(4096),
     },
 }
 ```
 
 ## Source citations
 
-By default, `FieldMeta.Sources` is always empty. LLMs cannot produce reliable source URLs from training data alone — any URLs they generate are reconstructed guesses that may not exist.
-
-To get real, verifiable source citations, enable sources via `SourceConfig`. This activates web search under the hood, grounding the model in real-time web data so that every URL in `Sources` comes from an actual search result.
+Web search is **enabled by default**. Every query automatically uses web search to ground the model in real-time data, and `FieldMeta.Sources` will contain real, verifiable URLs from search results.
 
 ```go
 resp, err := augur.Query[ActorInfo](ctx, client, &augur.Request{
     Query: "Harrison Ford net worth and family",
-    Options: &augur.QueryOptions{
-        Sources: &augur.SourceConfig{},
-    },
 })
 
-// Sources now contain real URLs from web search results.
+// Sources contain real URLs from web search results.
 for _, src := range resp.Meta["netWorth"].Sources {
     fmt.Printf("  %s — %s\n", src.Title, src.URL)
     // e.g. "Harrison Ford Net Worth | Celebrity Net Worth" — https://www.celebritynetworth.com/...
 }
 ```
 
+### Disabling web search
+
+To disable web search for a specific query, set `Disabled: true` on `SourceConfig`:
+
+```go
+resp, err := augur.Query[ActorInfo](ctx, client, &augur.Request{
+    Query: "...",
+    Options: &augur.QueryOptions{
+        Sources: &augur.SourceConfig{Disabled: true},
+    },
+})
+```
+
+To disable web search globally, use `WithoutWebSearch()` when creating the client:
+
+```go
+client := augur.New(provider, augur.WithoutWebSearch())
+```
+
 ### SourceConfig options
 
 | Field            | Type       | Default | Description                                                                 |
 | ---------------- | ---------- | ------- | --------------------------------------------------------------------------- |
+| `Disabled`       | `bool`     | `false` | Turns off web search entirely when true.                                    |
 | `MaxSearches`    | `*int`     | `2`     | Max web searches per query. Higher values find more data but increase cost. |
 | `AllowedDomains` | `[]string` | all     | Restrict results to these domains only.                                     |
 | `BlockedDomains` | `[]string` | none    | Exclude results from these domains.                                         |
 
 ```go
 Sources: &augur.SourceConfig{
-    MaxSearches:    &maxSearches, // e.g. 3
+    MaxSearches:    augur.Int(3),
     AllowedDomains: []string{"wikipedia.org", "britannica.com"},
 }
 ```
 
 ### Cost and performance
 
-Enabling sources activates web search, which adds cost and latency:
+Web search adds cost and latency to every query (since it is on by default):
 
 - **Per-search fee**: $10 per 1,000 searches (each search counts as one use regardless of results returned).
 - **Token usage**: Search result content is loaded into the context window as input tokens.
 - **Latency**: Each search adds network round-trip time.
+
+For cost-sensitive or high-volume workloads, disable web search at the client level with `augur.WithoutWebSearch()` or per-query with `&augur.SourceConfig{Disabled: true}`.
 
 The `Usage` field on the response tracks web search usage alongside token consumption:
 
@@ -266,14 +295,14 @@ if errors.Is(err, augur.ErrSourcesNotSupported) {
 }
 ```
 
-### When to use sources
+### When to disable web search
 
-| Scenario                                             | Sources | Why                                      |
-| ---------------------------------------------------- | ------- | ---------------------------------------- |
-| Factual data that needs verifiable citations         | Yes     | Real URLs from web search                |
-| Current/real-time data (prices, events, recent news) | Yes     | Web search bypasses training data cutoff |
-| Cost-sensitive, training data is sufficient          | No      | Avoids web search cost and latency       |
-| High-volume batch queries                            | No      | Cost scales with search count            |
+| Scenario                                             | Web search | Why                                      |
+| ---------------------------------------------------- | ---------- | ---------------------------------------- |
+| Factual data that needs verifiable citations         | On         | Real URLs from web search (default)      |
+| Current/real-time data (prices, events, recent news) | On         | Web search bypasses training data cutoff |
+| Cost-sensitive, training data is sufficient          | Off        | Avoids web search cost and latency       |
+| High-volume batch queries                            | Off        | Cost scales with search count            |
 
 ## Type coercion
 

@@ -34,23 +34,26 @@ type QueryOptions struct {
 	// MaxTokens overrides the client's default max output tokens for this query.
 	MaxTokens *int
 
-	// Sources enables source citations backed by web search. When non-nil,
-	// web search is activated and FieldMeta.Sources will contain real URLs
-	// from search results. When nil (the default), sources are always empty
-	// and no web search cost is incurred.
+	// Sources configures web search and source citations for this query.
+	// When nil, the source configuration defined at the client level is used 
+	// (web search is enabled by default).
+	// Provide a SourceConfig to customize web search behavior 
+	// or set Disabled: true to turn off web search for this query.
 	//
-	// Enabling sources activates web search, which incurs additional cost
-	// and increases token usage from search result content.
 	// Not all models support web search; if the requested model is incompatible,
 	// Query returns ErrSourcesNotSupported.
 	Sources *SourceConfig
 }
 
 // SourceConfig configures source citations backed by web search.
-// Enabling sources activates web search, which incurs additional cost
-// and increases token usage from search result content.
-// Sources are only populated when this config is provided.
+// Web search is enabled by default. Set Disabled to true to turn it off,
+// which avoids web search cost and returns empty FieldMeta.Sources.
 type SourceConfig struct {
+	// Disabled turns off web search entirely when true. When false (the
+	// default), web search is active and FieldMeta.Sources will contain
+	// real URLs from search results.
+	Disabled bool
+
 	// MaxSearches limits the number of web searches per query.
 	// Nil defaults to 2. Higher values increase cost and token usage.
 	MaxSearches *int

@@ -39,7 +39,6 @@ func Query[T any](ctx context.Context, c *Client, req *Request) (*Response[T], e
 	model := c.model
 	temperature := 0.0
 	maxTokens := c.maxTokens
-	var sources *SourceConfig
 	if req.Options != nil {
 		if req.Options.Model != "" {
 			model = req.Options.Model
@@ -50,8 +49,8 @@ func Query[T any](ctx context.Context, c *Client, req *Request) (*Response[T], e
 		if req.Options.MaxTokens != nil {
 			maxTokens = *req.Options.MaxTokens
 		}
-		sources = req.Options.Sources
 	}
+	sources := resolveSourceConfig(c, req.Options)
 
 	userPrompt, err := buildUserPrompt(req, schema)
 	if err != nil {
@@ -209,4 +208,26 @@ func resolveSchema[T any](req *Request) (*Schema, error) {
 	}
 
 	return schema, nil
+}
+
+// resolveSourceConfig determines the effective SourceConfig for a query using
+// the following precedence:
+//  1. Per-query Sources with Disabled: true → nil (no web search)
+//  2. Per-query Sources (non-nil, not disabled) → use it
+//  3. Per-query Sources nil → fall through to client defaults
+//  4. Client webSearchEnabled == false → nil (no web search)
+//  5. Otherwise → &client.sourceConfig (web search with client defaults)
+func resolveSourceConfig(c *Client, opts *QueryOptions) *SourceConfig {
+	if opts != nil && opts.Sources != nil {
+		if opts.Sources.Disabled {
+			return nil
+		}
+		return opts.Sources
+	}
+
+	if !c.webSearchEnabled {
+		return nil
+	}
+
+	return &c.sourceConfig
 }

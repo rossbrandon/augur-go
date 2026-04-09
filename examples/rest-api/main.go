@@ -39,6 +39,11 @@ func main() {
 			opts = append(opts, augur.WithMaxRetries(n))
 		}
 	}
+	if v := os.Getenv("AUGUR_DISABLE_WEB_SEARCH"); v != "" {
+		if v == "true" {
+			opts = append(opts, augur.WithoutWebSearch())
+		}
+	}
 
 	client := augur.New(
 		claude.NewProvider(os.Getenv("ANTHROPIC_API_KEY")),

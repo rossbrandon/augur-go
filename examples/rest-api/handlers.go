@@ -27,6 +27,7 @@ type queryOptions struct {
 
 // sourceConfig mirrors augur.SourceConfig for HTTP deserialization.
 type sourceConfig struct {
+	Disabled       bool     `json:"disabled,omitempty"`
 	MaxSearches    *int     `json:"maxSearches,omitempty"`
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
 	BlockedDomains []string `json:"blockedDomains,omitempty"`
@@ -73,6 +74,7 @@ func handleQuery(client *augur.Client, logger *slog.Logger) http.HandlerFunc {
 			}
 			if req.Options.Sources != nil {
 				augurReq.Options.Sources = &augur.SourceConfig{
+					Disabled:       req.Options.Sources.Disabled,
 					MaxSearches:    req.Options.Sources.MaxSearches,
 					AllowedDomains: req.Options.Sources.AllowedDomains,
 					BlockedDomains: req.Options.Sources.BlockedDomains,

@@ -380,12 +380,11 @@ func TestQuery_SourcesConfig_PassedToProvider(t *testing.T) {
 	mock := newMock(resp)
 	client := augur.New(mock)
 
-	maxSearches := 3
 	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
 		Query: "Tom Hanks family",
 		Options: &augur.QueryOptions{
 			Sources: &augur.SourceConfig{
-				MaxSearches:    &maxSearches,
+				MaxSearches:    augur.Int(3),
 				AllowedDomains: []string{"wikipedia.org"},
 			},
 		},
@@ -407,7 +406,7 @@ func TestQuery_SourcesConfig_PassedToProvider(t *testing.T) {
 	}
 }
 
-func TestQuery_SourcesNil_NotPassedToProvider(t *testing.T) {
+func TestQuery_DefaultSourcesPassedToProvider(t *testing.T) {
 	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
 	mock := newMock(resp)
 	client := augur.New(mock)
@@ -418,8 +417,110 @@ func TestQuery_SourcesNil_NotPassedToProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if mock.lastParams.Sources == nil {
+		t.Error("expected Sources to be non-nil by default (web search enabled)")
+	}
+}
+
+func TestQuery_SourcesDisabled_NotPassedToProvider(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock)
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+		Options: &augur.QueryOptions{
+			Sources: &augur.SourceConfig{Disabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if mock.lastParams.Sources != nil {
-		t.Error("expected Sources to be nil when not configured")
+		t.Error("expected Sources to be nil when disabled")
+	}
+}
+
+func TestQuery_WithoutWebSearch_DisablesGlobally(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock, augur.WithoutWebSearch())
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.lastParams.Sources != nil {
+		t.Error("expected Sources to be nil when WithoutWebSearch is set")
+	}
+}
+
+func TestQuery_WithoutWebSearch_PerQueryReenables(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock, augur.WithoutWebSearch())
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+		Options: &augur.QueryOptions{
+			Sources: &augur.SourceConfig{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.lastParams.Sources == nil {
+		t.Error("expected Sources to be non-nil when per-query re-enables web search")
+	}
+}
+
+func TestQuery_WithSourceConfig_SetsDefaults(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock, augur.WithSourceConfig(augur.SourceConfig{
+		MaxSearches:    augur.Int(5),
+		AllowedDomains: []string{"example.com"},
+	}))
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.lastParams.Sources == nil {
+		t.Fatal("expected Sources to be non-nil")
+	}
+	if *mock.lastParams.Sources.MaxSearches != 5 {
+		t.Errorf("MaxSearches: got %d, want 5", *mock.lastParams.Sources.MaxSearches)
+	}
+	if len(mock.lastParams.Sources.AllowedDomains) != 1 || mock.lastParams.Sources.AllowedDomains[0] != "example.com" {
+		t.Errorf("AllowedDomains: got %v", mock.lastParams.Sources.AllowedDomains)
+	}
+}
+
+func TestQuery_PerQuerySources_OverridesClient(t *testing.T) {
+	resp := envelope(`{"spouse":"Rita Wilson","children":["Colin"],"parents":["Amos"]}`)
+	mock := newMock(resp)
+	client := augur.New(mock, augur.WithSourceConfig(augur.SourceConfig{
+		MaxSearches: augur.Int(5),
+	}))
+
+	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
+		Query: "Tom Hanks family",
+		Options: &augur.QueryOptions{
+			Sources: &augur.SourceConfig{
+				MaxSearches: augur.Int(1),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if *mock.lastParams.Sources.MaxSearches != 1 {
+		t.Errorf("MaxSearches: got %d, want 1 (per-query override)", *mock.lastParams.Sources.MaxSearches)
 	}
 }
 
@@ -434,9 +535,6 @@ func TestQuery_WebSearchUsageAccumulated(t *testing.T) {
 
 	result, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
 		Query: "Tom Hanks family",
-		Options: &augur.QueryOptions{
-			Sources: &augur.SourceConfig{},
-		},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -481,9 +579,6 @@ func TestQuery_SourcesNotSupported(t *testing.T) {
 
 	_, err := augur.Query[actorFamily](context.Background(), client, &augur.Request{
 		Query: "Tom Hanks family",
-		Options: &augur.QueryOptions{
-			Sources: &augur.SourceConfig{},
-		},
 	})
 	if !errors.Is(err, augur.ErrProviderFailure) {
 		t.Fatalf("expected ErrProviderFailure wrapping, got %v", err)
