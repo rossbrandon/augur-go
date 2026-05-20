@@ -1,4 +1,6 @@
-# augur-go
+# Augur Go SDK
+
+![Augur Logo](docs/images/augur.png)
 
 Augur is a model-agnostic Go library that uses LLMs as a structured, schema-aware data retrieval layer. You describe what you want in natural language, define the output shape with a Go struct or JSON Schema, and get back strongly-typed, validated data with per-field source attribution.
 
